@@ -1,0 +1,41 @@
+Important Registers:
+    PC - points to next instruction
+    IR - hold the instruction currently being exec
+    MAR - memory address register (address bus)
+    MDR - memory data register (read/write bus)
+    
+Instruction Types:
+    arthmetic/logical
+    load/store
+    branches
+
+Cycle:
+    Fetch
+        - copy PC to MAR
+        - copy data at MAR to MDR
+        - copy MDR to IR
+    PC Update
+        - increment PC to next instruction
+    Decode
+    	- control unit reads instruction and propagates control bits of other componets
+    Memory Read
+    	- fetch operand
+    Execute (one of three types of instructions)
+    	- arithmetic/logic
+    	    - 2 operands from file
+    	    - 1 operand from file, 1 const
+        - load/store
+        - branch
+    Memory Write Back
+    	- store result to file/memory
+    	
+CPUController:
+    inputs: clk,
+    outputs: 
+    regs: curr_state, 
+    
+CPUDataPath:
+    inputs: controller flags
+    outputs:
+    regs: PC, IR, MAR, MDR
+    modules: FileRegister, ALU, RAM/MemoryController
