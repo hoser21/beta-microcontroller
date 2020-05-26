@@ -28,6 +28,9 @@ tri [DWIDTH-1:0] Data_in, Data;
 assign Data = (wrEn) ? Data_in : {DWIDTH{1'bz}};
 assign Data_in = (RW) ? Data : {DWIDTH{1'bz}};
 
+assign rdEn = RW;
+assign wrEn = ~RW;
+
 always @(posedge clk) begin
 
     // only run when the inputs valid
@@ -40,11 +43,6 @@ always @(posedge clk) begin
 
         Addr = Addr_in[AWIDTH-1:0];
 
-        if (~RW)
-            wrEn = 1; // write
-        else
-            rdEn = 1; // read
-
         // wait one cycle to write/read from ram
         wait(~clk);
         wait(clk);
@@ -52,14 +50,12 @@ always @(posedge clk) begin
         // add two cycles of arbitary delay
         wait(~clk);
         wait(clk);
-        
+
         wait(~clk);
         wait(clk);
 
         // tell CPU we're done and disable RAM
         Ready = 1;
-        rdEn = 0;
-        wrEn = 0;
     end
 end
 

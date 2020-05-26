@@ -13,6 +13,8 @@
     always @(posedge clk) begin \
         if (reset) \
             q <= (en) ? d : q; \
+        else \
+            q <= 0; \
     end
 
 `endif

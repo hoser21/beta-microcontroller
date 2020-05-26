@@ -28,7 +28,7 @@ multiply_32 multiplierer(my_mult, a, b);
 divide_32 dividerer(my_div, a, b);
 comp_32 comparatorer(my_lt, my_eq, my_gt, a, b);
 
-mux16_32 muxer(out, add, sub, my_mult, my_div, my_lt, my_eq, my_gt, ,
+mux16_32 muxer(out, add, sub, my_mult, my_div, my_eq, my_lt, {{31'b0}, ~my_gt[0]}, ,
     my_and, my_or, my_xor, my_xnor, my_shl, my_shr, my_sra, , op);
 
 endmodule
