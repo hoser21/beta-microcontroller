@@ -1,3 +1,7 @@
 /work
 *.wlf
 _*
+modelsim.ini
+vlog.opt
+wave.do
+*.vstf

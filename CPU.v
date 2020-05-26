@@ -11,7 +11,7 @@ module CPU(runCPU, clk, reset);
 
 parameter IWIDTH = 32;
 parameter DWIDTH = 32;
-parameter AWIDTH = 10;
+parameter AWIDTH = 8;
 
 input runCPU, clk, reset;
 
@@ -26,22 +26,18 @@ reg [IWIDTH-1:0] IR_nxt;
 reg [DWIDTH-1:0] MDR_nxt;
 reg [AWIDTH-1:0] MAR_nxt;
 
-`DFFE(PC, PC_nxt, 1'b1, 1'b1, clk);
-`DFFE(IR, IR_nxt, 1'b1, 1'b1, clk);
-`DFFE(MDR, MDR_nxt, 1'b1, 1'b1, clk);
-`DFFE(MAR, MAR_nxt, 1'b1, 1'b1, clk);
-
-PC_nxt = 0;
+`DFFE(PC, PC_nxt, 1'b1, 1'b1, clk)
+`DFFE(IR, IR_nxt, 1'b1, 1'b1, clk)
+`DFFE(MDR, MDR_nxt, 1'b1, 1'b1, clk)
+`DFFE(MAR, MAR_nxt, 1'b1, 1'b1, clk)
 
 // configure memory controller and RAM
 tri [DWIDTH-1:0] Data_in, Data;
 
 wire rdEn, wrEn;
-wire [7:0] Addr;
+wire [AWIDTH-1:0] Addr;
 wire Ready;
 
-reg reset;
-reg [15:0] Addr_in;
 reg RW;
 reg Valid;
 
@@ -56,7 +52,7 @@ reg [3:0] opcode;
 reg [DWIDTH-1:0] aluA, aluB;
 wire [DWIDTH-1:0] aluOut;
 
-ALU alu(out, aluA, aluB, aluOut);
+ALU alu(aluOut, aluA, aluB, opcode);
 
 // configure Register File
 reg [DWIDTH-1:0] regFileData;
@@ -64,19 +60,29 @@ reg [4:0] aSel, bSel, wSel;
 reg regFileWEn = 0;
 wire [DWIDTH-1:0] aRegOut, bRegOut;
 
-registerFile32 registerFile(aRegOut, bRegOut, clk, regFileData, wSel, regFileWEn, aSel, bSel)
+registerFile32 registerFile(aRegOut, bRegOut, clk, regFileData, wSel, regFileWEn, aSel, bSel);
 
 // configure high-level fsm
 typedef enum {IDLE, FETCH_MAR, FETCH_READ, FETCH_WAIT, PC_UPDATE, EXECUTE, EXECUTE_WAIT} state_cpu;
 
 state_cpu this_state, next_state;
 
-reg aluStart = 0;
-reg memStart = 0;
-reg pcStart = 0;
-reg executeDone = 0;
-reg memDone = 0;
-reg pcDone = 0;
+reg aluStart;
+reg memStart;
+reg pcStart;
+reg executeDone;
+reg memDone;
+reg pcDone;
+
+initial begin
+    PC_nxt = 0;
+    aluStart = 0;
+    memStart = 0;
+    pcStart = 0;
+    executeDone = 0;
+    memDone = 0;
+    pcDone = 0;
+end
 
 always @(posedge clk, negedge reset) begin
     if (!reset) begin
@@ -84,7 +90,7 @@ always @(posedge clk, negedge reset) begin
     end else begin
         this_state = next_state;
         
-        case (this_state) begin
+        case (this_state)
 
             IDLE: begin
                 next_state = (runCPU) ? FETCH_MAR : IDLE;
@@ -114,9 +120,9 @@ always @(posedge clk, negedge reset) begin
             end
 
             PC_UPDATE: begin
-                next_state = EXECUTE
+                next_state = EXECUTE;
                 PC_nxt = PC + 1;
-                IR_nxt = MDR;
+                IR_nxt = Data_in;
             end
 
             EXECUTE: begin
@@ -131,7 +137,7 @@ always @(posedge clk, negedge reset) begin
                     // arithmetic and logic
                     aluStart = 1;
                 end else begin
-                    if (IR[29:37] == 3'b000 | IR[29:37] == 3'b001) begin
+                    if (IR[28:26] == 3'b000 | IR[28:26] == 3'b001) begin
                         // load/store
                         memStart = 1;
                     end else begin
@@ -146,30 +152,31 @@ always @(posedge clk, negedge reset) begin
                 aluStart = 0;
                 memStart = 0;
                 pcStart = 0;
+            end
+
             // DEFAULT: maintain current state
             default: begin
                 next_state = this_state;
             end
-        end
+        endcase
     end
 end
 
 // configure arithmetic and logic fsm
-typedef enum {IDLE, S1, S2} state_alu;
+typedef enum {WAIT, S1, S2, S3, S4} state_execute;
 
-
-state_alu this_state_alu, next_state_alu;
+state_execute this_state_alu, next_state_alu;
 
 always @(posedge clk, negedge reset) begin
     if (!reset) begin
-        this_state_alu = IDLE;
+        this_state_alu = WAIT;
     end else begin
         this_state_alu = next_state_alu;
         
-        case (this_state_alu) begin
+        case (this_state_alu)
 
-            IDLE: begin
-                next_state_alu = (aluStart) ? S1 : IDLE;
+            WAIT: begin
+                next_state_alu = (aluStart) ? S1 : WAIT;
             end
 
             S1: begin
@@ -183,7 +190,7 @@ always @(posedge clk, negedge reset) begin
                 // determine literal instruction and sign extend it
                 if (IR[30]) begin
                     // sign extended literal
-                    aluB = {16{IR[15]},IR[15:0]};
+                    aluB = { {16{IR[15]}}, IR[15:0] };
                 end else begin
                     bSel = IR[15:11];
                     aluB = bRegOut;
@@ -195,7 +202,7 @@ always @(posedge clk, negedge reset) begin
             end
 
             S2: begin
-                next_state_alu = IDLE;
+                next_state_alu = WAIT;
 
                 regFileWEn = 0;
                 executeDone = 1;
@@ -205,25 +212,23 @@ always @(posedge clk, negedge reset) begin
             default: begin
                 next_state_alu = this_state_alu;
             end
-        end
+        endcase
     end
 end
 
 // configure load and store fsm
-typedef enum {IDLE, S1, S2, S3} state_mem;
-
-state_mem this_state_mem, next_state_mem;
+state_execute this_state_mem, next_state_mem;
 
 always @(posedge clk, negedge reset) begin
     if (!reset) begin
-        this_state_mem = IDLE;
+        this_state_mem = WAIT;
     end else begin
         this_state_mem = next_state_mem;
         
-        case (this_state_mem) begin
+        case (this_state_mem)
 
-            IDLE: begin
-                next_state_mem = (memStart) ? S1 : IDLE;
+            WAIT: begin
+                next_state_mem = (memStart) ? S1 : WAIT;
             end
 
             S1: begin
@@ -235,7 +240,7 @@ always @(posedge clk, negedge reset) begin
 
                 aSel = IR[20:16];
                 aluA = aRegOut;
-                aluB = {16{IR[15]},IR[15:0]};
+                aluB = { {16{IR[15]}},IR[15:0] };
                 MAR_nxt = aluOut;
                 if (IR[26]) begin
                     // store
@@ -262,10 +267,10 @@ always @(posedge clk, negedge reset) begin
                 
             S4: begin
                 // Store is complete, Load requires moving data to Register File
-                next_state_mem = IDLE;
+                next_state_mem = WAIT;
 
                 if (~IR[26]) begin
-                    regFileData = MDR;
+                    regFileData = Data_in;
                     regFileWEn = 1;
                     wSel = IR[25:21];
                 end
@@ -276,32 +281,30 @@ always @(posedge clk, negedge reset) begin
             default: begin
                 next_state_mem = this_state_mem;
             end
-        end
+        endcase
     end
 end
 
 // configure branch fsm
-typedef enum {IDLE} state_pc;
-
-state_pc this_state_pc, next_state_pc;
+state_execute this_state_pc, next_state_pc;
 
 always @(posedge clk, negedge reset) begin
     if (!reset) begin
-        this_state_pc = IDLE;
+        this_state_pc = WAIT;
     end else begin
         this_state_pc = next_state_pc;
         
-        case (this_state_pc) begin
+        case (this_state_pc)
 
-            IDLE: begin
-                next_state_pc = (pcStart) ? : IDLE;
+            WAIT: begin
+                next_state_pc = WAIT;
             end
             
             // DEFAULT: maintain current state
             default: begin
                 next_state_pc = this_state_pc;
             end
-        end
+        endcase
     end
 end
 

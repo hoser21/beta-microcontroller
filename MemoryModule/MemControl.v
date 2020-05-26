@@ -14,12 +14,12 @@ parameter AWIDTH = 8;
 inout Data_in;
 inout Data;
 
-output reg rdEn, wrEn;
+output rdEn, wrEn;
 output reg [AWIDTH-1:0] Addr;
 output reg Ready;
 
 input clk;
-input [15:0] Addr_in;
+input [AWIDTH-1:0] Addr_in;
 input RW;
 input Valid;
 
@@ -41,7 +41,7 @@ always @(posedge clk) begin
         wait(~clk);
         wait(clk);
 
-        Addr = Addr_in[AWIDTH-1:0];
+        Addr = Addr_in;
 
         // wait one cycle to write/read from ram
         wait(~clk);
