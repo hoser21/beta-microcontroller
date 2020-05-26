@@ -16,20 +16,10 @@ parameter AWIDTH = 8;
 input runCPU, clk, reset;
 
 // configure PC, IR, MDR, MAR
-reg [7:0] PC;
+reg [AWIDTH-1:0] PC;
 reg [IWIDTH-1:0] IR;
 reg [DWIDTH-1:0] MDR;
 reg [AWIDTH-1:0] MAR;
-
-reg [7:0] PC_nxt;
-reg [IWIDTH-1:0] IR_nxt;
-reg [DWIDTH-1:0] MDR_nxt;
-reg [AWIDTH-1:0] MAR_nxt;
-
-`DFFE(PC, PC_nxt, 1'b1, 1'b1, clk)
-`DFFE(IR, IR_nxt, 1'b1, 1'b1, clk)
-`DFFE(MDR, MDR_nxt, 1'b1, 1'b1, clk)
-`DFFE(MAR, MAR_nxt, 1'b1, 1'b1, clk)
 
 // configure memory controller and RAM
 tri [DWIDTH-1:0] Data_in, Data;
@@ -43,8 +33,8 @@ reg Valid;
 
 assign Data_in = (~RW) ? MDR : {DWIDTH{1'bz}};
 
-MemControl m_control(Data_in, Data, rdEn, wrEn, Addr, Ready, clk, MAR[7:0], RW, Valid);
-RAM ram(Data, clk, rdEn, wrEn, reset, Addr);
+MemControl m_control(Data_in, Data, rdEn, wrEn, Addr, Ready, clk, MAR, RW, Valid);
+RAM ram(Data, clk, rdEn, wrEn, 1'b1, Addr);
 
 
 // configure alu
@@ -75,13 +65,11 @@ reg memDone;
 reg pcDone;
 
 initial begin
-    PC_nxt = 0;
+    PC = 0;
     aluStart = 0;
     memStart = 0;
     pcStart = 0;
     executeDone = 0;
-    memDone = 0;
-    pcDone = 0;
 end
 
 always @(posedge clk, negedge reset) begin
@@ -94,24 +82,20 @@ always @(posedge clk, negedge reset) begin
 
             IDLE: begin
                 next_state = (runCPU) ? FETCH_MAR : IDLE;
-                PC_nxt = PC;
-                IR_nxt = IR;
-                MDR_nxt = MDR;
-                MAR_nxt = MAR;
                 regFileWEn = 0;
             end
 
             FETCH_MAR: begin
                 next_state = FETCH_READ;
-                MAR_nxt = PC;    // change MAR to PC
+                MAR = PC;    // change MAR to PC
                 regFileWEn = 0;
+                RW = 1;
+                Valid = 1;  
             end
 
             FETCH_READ: begin
+                // Read the next instruction from the RAM
                 next_state = FETCH_WAIT;
-                MAR_nxt = MAR;
-                RW = 1;         // Read the next instruction from the RAM
-                Valid = 1;
             end
 
             FETCH_WAIT: begin
@@ -121,14 +105,15 @@ always @(posedge clk, negedge reset) begin
 
             PC_UPDATE: begin
                 next_state = EXECUTE;
-                PC_nxt = PC + 1;
-                IR_nxt = Data_in;
+                PC = PC + 1;
+                if (Data_in)
+                    IR = Data_in;
+                else
+                    next_state = IDLE;
             end
 
             EXECUTE: begin
                 next_state = EXECUTE_WAIT;
-                PC_nxt = PC;
-                IR_nxt = IR;
 
                 executeDone = 0;
 
@@ -142,7 +127,7 @@ always @(posedge clk, negedge reset) begin
                         memStart = 1;
                     end else begin
                         // branch
-                        pcStart = 0;
+                        pcStart = 1;
                     end
                 end
             end
@@ -163,7 +148,7 @@ always @(posedge clk, negedge reset) begin
 end
 
 // configure arithmetic and logic fsm
-typedef enum {WAIT, S1, S2, S3, S4} state_execute;
+typedef enum {WAIT, S1, S2, S3, S4, S5, S6} state_execute;
 
 state_execute this_state_alu, next_state_alu;
 
@@ -185,7 +170,6 @@ always @(posedge clk, negedge reset) begin
                 regFileWEn = 0;
                 opcode = IR[29:26];
                 aSel = IR[20:16];
-                aluA = aRegOut;
                 
                 // determine literal instruction and sign extend it
                 if (IR[30]) begin
@@ -193,15 +177,27 @@ always @(posedge clk, negedge reset) begin
                     aluB = { {16{IR[15]}}, IR[15:0] };
                 end else begin
                     bSel = IR[15:11];
+                end
+            end
+
+            S2: begin
+                next_state_alu = S3;
+
+                aluA = aRegOut;
+                if (~IR[30]) begin
                     aluB = bRegOut;
                 end
+            end
+
+            S3: begin
+                next_state_alu = S4;
 
                 regFileData = aluOut;
                 wSel = IR[25:21];
                 regFileWEn = 1;
             end
 
-            S2: begin
+            S4: begin
                 next_state_alu = WAIT;
 
                 regFileWEn = 0;
@@ -236,16 +232,13 @@ always @(posedge clk, negedge reset) begin
                 next_state_mem = S2;
 
                 regFileWEn = 0;
-                opcode = 5'b11000;  // set ALU to ADDC to calulate literal offset
+                opcode = 6'b110000;  // set ALU to ADDC to calulate literal offset
 
                 aSel = IR[20:16];
-                aluA = aRegOut;
                 aluB = { {16{IR[15]}},IR[15:0] };
-                MAR_nxt = aluOut;
                 if (IR[26]) begin
                     // store
                     bSel = IR[25:21];
-                    MDR_nxt = bRegOut;
                     RW = 0;
                 end else begin
                     // load
@@ -254,18 +247,31 @@ always @(posedge clk, negedge reset) begin
             end
 
             S2: begin
-                // Execute the load/store by validating the data with the RAM
                 next_state_mem = S3;
+                aluA = aRegOut;
+                if(IR[26]) begin
+                    MDR = bRegOut;
+                end
+            end
+
+            S3: begin
+                next_state_mem = S4;
+                MAR = aluOut;
                 Valid = 1;
             end
+
+            S4: begin
+                // Execute the load/store by validating the data with the RAM
+                next_state_mem = S5;
+            end
                 
-            S3: begin
+            S5: begin
                 // Wait for mem to finish command                  
-                next_state_mem = (Ready) ? S4 : S3;
+                next_state_mem = (Ready) ? S6 : S5;
                 Valid = 0;
             end
                 
-            S4: begin
+            S6: begin
                 // Store is complete, Load requires moving data to Register File
                 next_state_mem = WAIT;
 
@@ -275,7 +281,7 @@ always @(posedge clk, negedge reset) begin
                     wSel = IR[25:21];
                 end
 
-                memDone = 1;
+                executeDone = 1;
             end
             // DEFAULT: maintain current state
             default: begin
@@ -297,9 +303,36 @@ always @(posedge clk, negedge reset) begin
         case (this_state_pc)
 
             WAIT: begin
-                next_state_pc = WAIT;
+                next_state_pc = (pcStart) ? S1 : WAIT;
             end
-            
+
+            S1: begin
+                next_state_pc = S2;
+                regFileWEn = 0;
+                aSel = IR[20:16];
+            end
+
+            S2: begin
+                next_state_pc = WAIT;
+                regFileData = PC + 1;
+                if (IR[28]) begin
+                    //xnor?
+                    // beq || bne
+                    if (((aRegOut == 0) && ~IR[26]) || ((aRegOut != 0) && IR[26])) begin
+                        //branch
+                        PC = PC + 1 + { {16{IR[15]}},IR[15:0] };
+                    end
+                end
+                else begin
+                    //jump
+                    PC = aRegOut;
+                end
+                wSel = IR[25:21];
+                regFileWEn = 1;
+
+                executeDone = 1;
+            end
+
             // DEFAULT: maintain current state
             default: begin
                 next_state_pc = this_state_pc;

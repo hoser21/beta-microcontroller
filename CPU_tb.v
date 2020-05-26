@@ -17,6 +17,7 @@ initial begin
     reset = 0;
     #20 reset = 1;
     #20 runCPU = 1;
+    #20 runCPU = 0;
 end
 
 // clock

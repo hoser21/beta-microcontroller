@@ -14,7 +14,8 @@ parameter AWIDTH = 8;
 inout Data_in;
 inout Data;
 
-output rdEn, wrEn;
+output rdEn;
+output reg wrEn;
 output reg [AWIDTH-1:0] Addr;
 output reg Ready;
 
@@ -25,11 +26,10 @@ input Valid;
 
 tri [DWIDTH-1:0] Data_in, Data;
 
-assign Data = (wrEn) ? Data_in : {DWIDTH{1'bz}};
+assign Data = (~RW) ? Data_in : {DWIDTH{1'bz}};
 assign Data_in = (RW) ? Data : {DWIDTH{1'bz}};
 
 assign rdEn = RW;
-assign wrEn = ~RW;
 
 always @(posedge clk) begin
 
@@ -42,11 +42,14 @@ always @(posedge clk) begin
         wait(clk);
 
         Addr = Addr_in;
+        wrEn = ~RW;
 
         // wait one cycle to write/read from ram
         wait(~clk);
         wait(clk);
         
+        wrEn = 0;
+
         // add two cycles of arbitary delay
         wait(~clk);
         wait(clk);
@@ -57,6 +60,10 @@ always @(posedge clk) begin
         // tell CPU we're done and disable RAM
         Ready = 1;
     end
+end
+
+initial begin
+    Ready = 1;
 end
 
 endmodule
